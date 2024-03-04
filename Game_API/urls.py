@@ -19,7 +19,7 @@ from django.urls import include, path, re_path
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from game.views import LoginAPIView, LogoutAPIView
+from game.views import RegistrationView, LoginAPIView, LogoutAPIView
 
 
 schema_view = get_schema_view(
@@ -34,6 +34,7 @@ schema_view = get_schema_view(
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/registration/', RegistrationView.as_view(), name='registration'),
     path('api/login/', LoginAPIView.as_view(), name='login'),
     path('api/logout/', LogoutAPIView.as_view(), name='logout'),
     # path('api/', include('game.url')),
