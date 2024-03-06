@@ -1,21 +1,25 @@
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny
-# from .models import
 from .serializers import UserRegistrationSerializer, LoginSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
+from . models import CustomUser
+from django.db.models import Q
 
 
 
-
-#registration
+# Registration
 class RegistrationView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
+        x = CustomUser.objects.filter(Q(username=request.data["username"])&Q(in_game_name=request.data["in_game_name"]))
+        print(x)
+                                       
+        if serializer.is_valid() and len(x)==0:
             user = serializer.save()
 
             token, created = Token.objects.get_or_create(user=user)
@@ -24,10 +28,11 @@ class RegistrationView(APIView):
                 'user': serializer.data,
                 'token': token.key
             }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"status":"User already exists"}, status=status.HTTP_400_BAD_REQUEST)
+        # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-#login
+# Login
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
@@ -36,7 +41,7 @@ class LoginAPIView(APIView):
             username = serializer.validated_data['username']
             password = serializer.validated_data['password']
 
-            user = authenticate(username=username, password=password)
+            user = authenticate(request,  username=username, password=password)
             if user is not None:
                 token, created = Token.objects.get_or_create(user=user)
                 return Response({'token': token.key})
@@ -45,7 +50,7 @@ class LoginAPIView(APIView):
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-#logout
+# Logout
 class LogoutAPIView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
