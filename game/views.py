@@ -1,12 +1,12 @@
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from .serializers import UserRegistrationSerializer, LoginSerializer
+from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, TeamMembershipSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
-from . models import CustomUser
+from . models import CustomUser, Team, TeamMembership
 from django.db.models import Q
 
 
@@ -17,7 +17,6 @@ class RegistrationView(APIView):
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
         x = CustomUser.objects.filter(Q(username=request.data["username"])&Q(in_game_name=request.data["in_game_name"]))
-        print(x)
                                        
         if serializer.is_valid() and len(x)==0:
             user = serializer.save()
@@ -63,3 +62,48 @@ class LogoutAPIView(APIView):
 
         token.delete()
         return Response({'message': 'User logged out successfully'}, status=status.HTTP_200_OK)
+
+
+# Teams / Membership / Invitation
+    
+class CustomUserViewSet(viewsets.ModelViewSet):
+    queryset = CustomUser.objects.all()
+    serializer_class = CustomUserSerializer
+
+
+class TeamMembershipViewSet(viewsets.ModelViewSet):
+    queryset = TeamMembership.objects.all()
+    serializer_class = TeamMembershipSerializer
+
+
+class TeamViewSet(viewsets.ModelViewSet):
+    queryset = Team.objects.all()
+    serializer_class = TeamSerializer
+
+    def perform_create(self, serializer):
+        team = serializer.save(creator=self.request.user)
+        # Automatically assign captain status to the team creator
+        TeamMembership.objects.create(team=team, player=self.request.user, role='Captain')
+        # Update member count after creation
+        team.member_count = 1
+        team.save()
+
+    def perform_update(self, serializer):
+        # Update member count when a member is added
+        serializer.save()
+        team = serializer.instance
+        team.member_count = team.memberships.count()
+        team.save()
+
+    def get_queryset(self):
+        return Team.objects.filter(memberships__player=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        if 8 < serializer.instance.member_count >= 5:
+            serializer.instance.created = True
+            serializer.instance.save()
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

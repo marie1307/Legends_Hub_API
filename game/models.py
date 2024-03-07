@@ -21,6 +21,7 @@ class Team(models.Model):
     name = models.CharField(max_length=100)
     logo = models.ImageField(upload_to='team_logos/')
     created_at = models.DateTimeField(auto_now_add=True)
+    member_count = models.PositiveSmallIntegerField(default=0)
 
 
 class TeamMembership(models.Model):
