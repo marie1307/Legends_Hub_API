@@ -7,28 +7,28 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from . models import CustomUser, Team, TeamMembership
-from django.db.models import Q
 
 
 
 # Registration
 class RegistrationView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
-        x = CustomUser.objects.filter(Q(username=request.data["username"])&Q(in_game_name=request.data["in_game_name"]))
-                                       
-        if serializer.is_valid() and len(x)==0:
+
+        if CustomUser.objects.filter(username=request.data["username"]).exists():
+            return Response({"status": "User with this username already exists"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if serializer.is_valid():
             user = serializer.save()
-
             token, created = Token.objects.get_or_create(user=user)
-
             return Response({
                 'user': serializer.data,
                 'token': token.key
             }, status=status.HTTP_201_CREATED)
-        return Response({"status":"User already exists"}, status=status.HTTP_400_BAD_REQUEST)
-        # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 # Login
@@ -65,10 +65,11 @@ class LogoutAPIView(APIView):
 
 
 # Teams / Membership / Invitation
-    
+    # Personal page
 class CustomUserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = CustomUserSerializer
+    authentication_classes=[IsAuthenticated]
 
 
 class TeamMembershipViewSet(viewsets.ModelViewSet):

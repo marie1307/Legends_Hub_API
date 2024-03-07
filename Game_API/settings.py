@@ -140,7 +140,7 @@ REST_FRAMEWORK = {
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-AUTHENTICATION_BACKENDS = [
-    'game.backends.CustomUserModelBackend',
-    'django.contrib.auth.backends.ModelBackend',  # Default backend
-]
+# AUTHENTICATION_BACKENDS = [
+#     'game.models.CustomUser',
+#     'django.contrib.auth.backends.ModelBackend',  # Default backend
+# ]
