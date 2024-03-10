@@ -19,37 +19,35 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         user = CustomUser.objects.create(**validated_data)
         return user
     
-    
-
-
 #login 
 class LoginSerializer(serializers.Serializer):
     username = serializers.EmailField() #requires authentication with email
     password = serializers.CharField()
 
-
-# Teams / Membership / Invitation
-
+    
+# CustomUser - add full_name and in_game_name / username as email
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ('id', 'username', 'full_name',
-                  'in_game_name')  # Add other fields as needed
+        fields = ('id', 'username', 'full_name', 'in_game_name')  
+        read_only_fields = ('id', 'username', 'full_name')
 
 
-class TeamMembershipSerializer(serializers.ModelSerializer):
-    player = CustomUserSerializer()
-
-    class Meta:
-        model = TeamMembership
-        fields = ('player', 'role')
-
+# Teams / Membership / Invitations
 
 class TeamSerializer(serializers.ModelSerializer):
-    creator = CustomUserSerializer()
-    memberships = TeamMembershipSerializer(many=True)
+    creator = CustomUserSerializer(many=False, read_only=True)
 
     class Meta:
         model = Team
-        fields = ('id', 'name', 'creator', 'memberships', 'member_count')
+        fields = ('id', 'name', 'creator', 'member_count')
         read_only_fields = ('member_count',)
+
+# Team_membership
+class TeamMembershipSerializer(serializers.ModelSerializer):
+    player = CustomUserSerializer(many=False, read_only=True)
+    team = TeamSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = TeamMembership
+        fields = ('player', 'team', 'member_status')

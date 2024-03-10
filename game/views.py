@@ -1,5 +1,6 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, TeamMembershipSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,85 +9,6 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from . models import CustomUser, Team, TeamMembership
 from .permissions import PersinalPagePermission
-from rest_framework.exceptions import MethodNotAllowed
-
-
-# Teams / Membership / Invitation
-    # Personal page details
-class CustomUserPersonalPageViewSet(viewsets.ModelViewSet):
-    queryset = CustomUser.objects.all()
-    serializer_class = CustomUserSerializer
-    authentication_classes = [TokenAuthentication]
-    permission_classes=[PersinalPagePermission]
-
-    # Get information only owner
-    def get_queryset(self):
-        user = self.request.user
-        return CustomUser.objects.filter(username=user)
-
-    # Updates password only
-    def update(self, request, *args, **kwargs):
-        user = self.request.user
-        if 'password' not in request.data:
-            return Response({'error': 'Password field is required'}, status=status.HTTP_400_BAD_REQUEST)
-        password = request.data['password']
-        user.set_password(password)
-        user.save()
-        return Response({'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
-    
-    # Updates in_game_name only
-    def update(self, request, *args, **kwargs):
-        user = self.request.user
-        if 'in_game_name' not in request.data:
-            return Response({'error': 'In-game name field is required'}, status=status.HTTP_400_BAD_REQUEST)
-        in_game_name = request.data['in_game_name']
-        user.in_game_name = in_game_name
-        user.save()
-        return Response({'message': 'In-game name updated successfully'}, status=status.HTTP_200_OK)
-         
-
-class TeamMembershipViewSet(viewsets.ModelViewSet):
-    queryset = TeamMembership.objects.all()
-    serializer_class = TeamMembershipSerializer
-    authentication_classes = [TokenAuthentication]
-
-    # # Get information only owner
-    # def get_queryset(self):
-    #     user = self.request.user
-    #     return CustomUser.objects.filter(username=user)
-
-
-class TeamViewSet(viewsets.ModelViewSet):
-    queryset = Team.objects.all()
-    serializer_class = TeamSerializer
-
-    def perform_create(self, serializer):
-        team = serializer.save(creator=self.request.user)
-        # Automatically assign captain status to the team creator
-        TeamMembership.objects.create(team=team, player=self.request.user, role='Captain')
-        # Update member count after creation
-        team.member_count = 1
-        team.save()
-
-    def perform_update(self, serializer):
-        # Update member count when a member is added
-        serializer.save()
-        team = serializer.instance
-        team.member_count = team.memberships.count()
-        team.save()
-
-    def get_queryset(self):
-        return Team.objects.filter(memberships__player=self.request.user)
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        if 8 < serializer.instance.member_count >= 5:
-            serializer.instance.created = True
-            serializer.instance.save()
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 # Registration
@@ -130,6 +52,8 @@ class LoginAPIView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # Logout
+
+
 class LogoutAPIView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
@@ -142,3 +66,96 @@ class LogoutAPIView(APIView):
 
         token.delete()
         return Response({'message': 'User logged out successfully'}, status=status.HTTP_200_OK)
+
+
+# Teams / Membership / Invitation
+    # Personal page details
+class CustomUserPersonalPageViewSet(viewsets.ModelViewSet):
+    queryset = CustomUser.objects.all()
+    serializer_class = CustomUserSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes=[PersinalPagePermission]
+
+    # Get information only owner
+    def get_queryset(self):
+        user = self.request.user
+        return CustomUser.objects.filter(username=user)
+
+    # Updates password only
+    def update(self, request, *args, **kwargs):
+        user = self.request.user
+        if 'password' not in request.data:
+            return Response({'error': 'Password field is required'}, status=status.HTTP_400_BAD_REQUEST)
+        password = request.data['password']
+        user.set_password(password)
+        user.save()
+        return Response({'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
+    
+    # Updates in_game_name only
+    def update(self, request, *args, **kwargs):
+        user = self.request.user
+        if 'in_game_name' not in request.data:
+            return Response({'error': 'In-game name field is required'}, status=status.HTTP_400_BAD_REQUEST)
+        in_game_name = request.data['in_game_name']
+        user.in_game_name = in_game_name
+        user.save()
+        return Response({'message': 'In-game name updated successfully'}, status=status.HTTP_200_OK)
+         
+
+class TeamMembershipViewSet(viewsets.ModelViewSet):
+    queryset = TeamMembership.objects.all()
+    serializer_class = TeamMembershipSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, PersinalPagePermission]
+
+    # Get information only owner
+    def get_queryset(self):
+        user = self.request.user
+        return CustomUser.objects.filter(username=user)
+
+
+class TeamViewSet(viewsets.ModelViewSet):
+    queryset = Team.objects.all()
+    serializer_class = TeamSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [AllowAny]
+
+    def perform_create(self, serializer):
+        # Retrieve the creator instance based on the provided ID
+        creator_id = self.request.data.get('creator', {}).get('id')
+        creator = get_object_or_404(CustomUser, pk=creator_id)
+
+        # Set the creator for the team
+        team = serializer.save(creator=creator)
+        
+        # Automatically assign member status to the team creator
+        TeamMembership.objects.create(team=team, player=creator, member_status=True)
+
+        # Update member count after creation
+        team.member_count = 1
+        team.save()
+
+    def perform_update(self, serializer):
+        # Update member count when a member is added
+        serializer.save()
+        team = serializer.instance
+        team.member_count = team.memberships.count()
+        team.save()
+
+    def get_queryset(self):
+        return Team.objects.filter(memberships__player=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        if serializer.instance.member_count >= 5:
+            serializer.instance.created = True
+            serializer.instance.save()
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+'''
+
+'''

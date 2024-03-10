@@ -16,31 +16,20 @@ class CustomUser(AbstractUser):
 # Teams / Relationships / invitations
 
 class Team(models.Model):
-    creator = models.OneToOneField(
-        CustomUser, related_name='created_team', on_delete=models.CASCADE)
-    name = models.CharField(max_length=100)
-    logo = models.ImageField(upload_to='team_logos/')
+    creator = models.OneToOneField(CustomUser, related_name='captain', on_delete=models.CASCADE)
+    name = models.CharField(max_length=100, unique=True,)
+    logo = models.ImageField(upload_to='team_logos/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     member_count = models.PositiveSmallIntegerField(default=0)
 
 
 class TeamMembership(models.Model):
-    ROLE_CHOICES = (
-        ('Player', 'Player'),
-        ('Captain', 'Captain'),
-    )
-
-    player = models.OneToOneField(
-        CustomUser, related_name='team_membership', on_delete=models.CASCADE)
-    team = models.ForeignKey(
-        Team, related_name='memberships', on_delete=models.CASCADE)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
-
-    class Meta:
-        unique_together = ('team', 'role')
+    player = models.OneToOneField(CustomUser, related_name='team_membership', on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, related_name='memberships', on_delete=models.CASCADE)
+    member_status = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.player.full_name}'s membership in {self.team.name} as {self.role}"
+        return f"{self.player.full_name}'s membership in {self.team.name} is {self.member_status}"
 
 
 class Invitation(models.Model):
