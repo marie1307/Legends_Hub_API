@@ -18,6 +18,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
         user = CustomUser.objects.create(**validated_data)
         return user
+    
+    
 
 
 #login 
@@ -31,7 +33,7 @@ class LoginSerializer(serializers.Serializer):
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ('id', 'username', 'email', 'full_name',
+        fields = ('id', 'username', 'full_name',
                   'in_game_name')  # Add other fields as needed
 
 
