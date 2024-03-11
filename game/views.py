@@ -1,14 +1,15 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
-from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, TeamMembershipSerializer
+from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, TeamMembershipSerializer, InvitationSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
-from . models import CustomUser, Team, TeamMembership
+from . models import CustomUser, Team, TeamMembership, Invitation, Notification
 from .permissions import PersinalPagePermission
+from rest_framework.decorators import action
 
 
 # Registration
@@ -118,7 +119,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all()
     serializer_class = TeamSerializer
     authentication_classes = [TokenAuthentication]
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
         # Retrieve the creator instance based on the provided ID
@@ -155,7 +156,66 @@ class TeamViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
+# დასატესტია!!!!
+# Invitations
+class InvitationViewSet(viewsets.ModelViewSet):
+    queryset = Invitation.objects.all()
+    serializer_class = InvitationSerializer
+    # Add your authentication classes here
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]  # Add your permission classes here
 
-'''
+    @action(detail=True, methods=['post'])
+    def send_invitation(self, request, pk=None):
+        invitation = self.get_object()
+        sender = invitation.sender
+        team = invitation.team
+        receiver = invitation.receiver
 
-'''
+        # Check if the team already has 7 members (including the creator)
+        if team.memberships.count() >= 7:
+            return Response({"error": "Team cannot have more than 7 members"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if the receiver has an active status in membership
+        try:
+            team_membership = TeamMembership.objects.get(
+                team=team, player=receiver, member_status=True)
+            return Response({"error": "User already has an active membership in the team"}, status=status.HTTP_400_BAD_REQUEST)
+        except TeamMembership.DoesNotExist:
+            pass
+
+        # Create notification for the receiver
+        Notification.objects.create(user=receiver, message="You have received an invitation to join a team")
+
+        # Return a success response
+        return Response({"message": "Invitation sent successfully"}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def accept_invitation(self, request, pk=None):
+        invitation = self.get_object()
+        sender = invitation.sender
+        team = invitation.team
+        receiver = invitation.receiver
+
+        # Check if the team already has 7 members (including the creator)
+        if team.memberships.count() >= 7:
+            return Response({"error": "Team cannot have more than 7 members"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update the team membership to mark the receiver as active
+        try:
+            team_membership = TeamMembership.objects.get(team=team, player=receiver)
+            team_membership.member_status = True
+            team_membership.save()
+        except TeamMembership.DoesNotExist:
+            return Response({"error": "Membership not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Update the invitation status to Accepted
+        invitation.status = 'Accepted'
+        invitation.save()
+
+        # Create notification for the team creator
+        Notification.objects.create(user=team.creator, message=f"{receiver.username} has accepted the invitation to join the team")
+
+
+        # Return a success response
+        return Response({"message": "Invitation accepted successfully"}, status=status.HTTP_200_OK)

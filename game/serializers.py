@@ -1,7 +1,7 @@
 from .models import CustomUser, Team, TeamMembership
 from rest_framework import serializers
 from django.contrib.auth.hashers import make_password
-from .models import CustomUser, Team, TeamMembership
+from .models import CustomUser, Team, TeamMembership, Invitation
 
 # Registration
 # User registration by email, first_name, last_name, in_game_name and password
@@ -51,3 +51,9 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeamMembership
         fields = ('player', 'team', 'member_status')
+
+# Invitation
+class InvitationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Invitation
+        fields = '__all__'
