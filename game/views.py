@@ -9,7 +9,7 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from . models import CustomUser, Team, TeamMembership, Invitation, Notification
 from .permissions import PersinalPagePermission
-from rest_framework.decorators import action
+from django.db.models import Q
 
 
 # Registration
@@ -53,8 +53,6 @@ class LoginAPIView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # Logout
-
-
 class LogoutAPIView(APIView):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
@@ -85,22 +83,18 @@ class CustomUserPersonalPageViewSet(viewsets.ModelViewSet):
     # Updates password only
     def update(self, request, *args, **kwargs):
         user = self.request.user
-        if 'password' not in request.data:
-            return Response({'error': 'Password field is required'}, status=status.HTTP_400_BAD_REQUEST)
-        password = request.data['password']
-        user.set_password(password)
-        user.save()
-        return Response({'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
-    
-    # Updates in_game_name only
-    def update(self, request, *args, **kwargs):
-        user = self.request.user
-        if 'in_game_name' not in request.data:
-            return Response({'error': 'In-game name field is required'}, status=status.HTTP_400_BAD_REQUEST)
-        in_game_name = request.data['in_game_name']
-        user.in_game_name = in_game_name
-        user.save()
-        return Response({'message': 'In-game name updated successfully'}, status=status.HTTP_200_OK)
+        if 'password' in request.data:
+            password = request.data['password']
+            user.set_password(password)
+            user.save()
+            return Response({'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
+        elif 'in_game_name' in request.data:
+            in_game_name = request.data['in_game_name']
+            user.in_game_name = in_game_name
+            user.save()
+            return Response({'message': 'In-game name updated successfully'}, status=status.HTTP_200_OK)
+        else:
+            return Response({'error': 'Unsupported operation'}, status=status.HTTP_400_BAD_REQUEST)
          
 
 class TeamMembershipViewSet(viewsets.ModelViewSet):
@@ -161,61 +155,57 @@ class TeamViewSet(viewsets.ModelViewSet):
 class InvitationViewSet(viewsets.ModelViewSet):
     queryset = Invitation.objects.all()
     serializer_class = InvitationSerializer
-    # Add your authentication classes here
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]  # Add your permission classes here
+    permission_classes = [IsAuthenticated]
 
-    @action(detail=True, methods=['post'])
-    def send_invitation(self, request, pk=None):
-        invitation = self.get_object()
-        sender = invitation.sender
-        team = invitation.team
-        receiver = invitation.receiver
+    def get_queryset(self):
+        user = self.request.user
+        # This allows users to see invitations they've sent and received
+        return Invitation.objects.filter(Q(sender__creator=user) | Q(receiver=user))
 
-        # Check if the team already has 7 members (including the creator)
+    def create(self, request, *args, **kwargs):
+        # Custom logic for creating an invitation, including validation
+        # and sending a notification to the receiver.
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        # Assuming `sender` is a team ID passed in the request
+        team_id = serializer.validated_data['sender'].id
+        team = get_object_or_404(Team, id=team_id)
+
         if team.memberships.count() >= 7:
             return Response({"error": "Team cannot have more than 7 members"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if the receiver has an active status in membership
-        try:
-            team_membership = TeamMembership.objects.get(
-                team=team, player=receiver, member_status=True)
+        receiver = serializer.validated_data['receiver']
+        if TeamMembership.objects.filter(team=team, player=receiver, member_status=True).exists():
             return Response({"error": "User already has an active membership in the team"}, status=status.HTTP_400_BAD_REQUEST)
-        except TeamMembership.DoesNotExist:
-            pass
 
-        # Create notification for the receiver
         Notification.objects.create(user=receiver, message="You have received an invitation to join a team")
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-        # Return a success response
-        return Response({"message": "Invitation sent successfully"}, status=status.HTTP_200_OK)
+    def perform_create(self, serializer):
+        # This method is called by the create method.
+        serializer.save()
 
-    @action(detail=True, methods=['post'])
-    def accept_invitation(self, request, pk=None):
-        invitation = self.get_object()
-        sender = invitation.sender
-        team = invitation.team
-        receiver = invitation.receiver
+    def partial_update(self, request, *args, **kwargs):
+        # Restrict updates to the status field for PATCH requests.
+        if 'status' in request.data and len(request.data) == 1:
+            invitation = self.get_object()
 
-        # Check if the team already has 7 members (including the creator)
-        if team.memberships.count() >= 7:
-            return Response({"error": "Team cannot have more than 7 members"}, status=status.HTTP_400_BAD_REQUEST)
+            if invitation.receiver != request.user:
+                return Response({"error": "You do not have permission to update this invitation."}, status=status.HTTP_403_FORBIDDEN)
 
-        # Update the team membership to mark the receiver as active
-        try:
-            team_membership = TeamMembership.objects.get(team=team, player=receiver)
-            team_membership.member_status = True
-            team_membership.save()
-        except TeamMembership.DoesNotExist:
-            return Response({"error": "Membership not found"}, status=status.HTTP_404_NOT_FOUND)
+            new_status = request.data['status']
+            if new_status not in ['Accepted', 'Declined']:
+                return Response({"error": "Invalid status. Only 'Accepted' or 'Declined' are allowed."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Update the invitation status to Accepted
-        invitation.status = 'Accepted'
-        invitation.save()
-
-        # Create notification for the team creator
-        Notification.objects.create(user=team.creator, message=f"{receiver.username} has accepted the invitation to join the team")
-
-
-        # Return a success response
-        return Response({"message": "Invitation accepted successfully"}, status=status.HTTP_200_OK)
+            if invitation.status == 'Pending':
+                response = super().partial_update(request, *args, **kwargs)
+                if response.status_code == status.HTTP_200_OK:
+                    # Notifications for both the receiver and the sender
+                    Notification.objects.create(user=request.user, message=f"You have {new_status.lower()} the invitation to join {invitation.sender.name}.")
+                    Notification.objects.create(user=invitation.sender.creator, message=f"{request.user.username} has {new_status.lower()} the invitation to join {invitation.sender.name}.")
+                return response
+        else:
+            return Response({"error": "You can only update the status."}, status=status.HTTP_400_BAD_REQUEST)
