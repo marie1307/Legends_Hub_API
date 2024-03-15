@@ -24,6 +24,9 @@ class Team(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     member_count = models.PositiveSmallIntegerField(default=0)
 
+    class Meta:
+        unique_together = ('creator', 'name')
+
 # Team membership
 class TeamMembership(models.Model):
     player = models.OneToOneField(CustomUser, related_name='team_membership', on_delete=models.CASCADE)
@@ -41,11 +44,14 @@ class Invitation(models.Model):
         ('Declined', 'Declined'),
     )
     
-    sender = models.ForeignKey(CustomUser, related_name='sent_invitations', on_delete=models.CASCADE)
+    sender = models.ForeignKey(Team, related_name='sent_invitations', on_delete=models.CASCADE)
     team = models.ForeignKey(Team, related_name='invitations', on_delete=models.CASCADE)
     receiver = models.ForeignKey(CustomUser, related_name='received_invitations', on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('sender', 'receiver', 'team')
 
     def __str__(self):
         return f"Invitation from {self.sender.full_name} to {self.receiver.full_name} for team {self.team.name}"

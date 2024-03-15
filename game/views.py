@@ -115,40 +115,50 @@ class TeamViewSet(viewsets.ModelViewSet):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        # Retrieve the creator instance based on the provided ID
-        creator_id = self.request.data.get('creator', {}).get('id')
-        creator = get_object_or_404(CustomUser, pk=creator_id)
-
-        # Set the creator for the team
-        team = serializer.save(creator=creator)
-        
-        # Automatically assign member status to the team creator
-        TeamMembership.objects.create(team=team, player=creator, member_status=True)
-
-        # Update member count after creation
-        team.member_count = 1
-        team.save()
-
-    def perform_update(self, serializer):
-        # Update member count when a member is added
-        serializer.save()
-        team = serializer.instance
-        team.member_count = team.memberships.count()
-        team.save()
-
-    def get_queryset(self):
-        return Team.objects.filter(memberships__player=self.request.user)
-
     def create(self, request, *args, **kwargs):
+        user = request.user
+
+        # Check if the user already has a team as a creator
+        if Team.objects.filter(creator=user).exists():
+            return Response({"error": "User already has a created team."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if the user is an active member of any team
+        if TeamMembership.objects.filter(player=user, member_status=True).exists():
+            return Response({"error": "User is already an active member of a team."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract team name from the request data
+        team_name = request.data.get('name')
+        if Team.objects.filter(name=team_name).exists():
+            return Response({"error": "A team with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Proceed with standard creation process if checks pass
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        if serializer.instance.member_count >= 5:
-            serializer.instance.created = True
-            serializer.instance.save()
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        team = serializer.save(creator=user)
+        # Automatically assign member status to the team creator
+        TeamMembership.objects.create(
+            team=team, player=user, member_status=True)
+        # Initial member count set to 1 as the creator is automatically added
+        team.member_count = 1
+        team.save()
+
+    def get_queryset(self):
+        user = self.request.user
+        # Users can view teams they are a part of
+        return Team.objects.filter(memberships__player=user)
+
+    def perform_update(self, serializer):
+        # Automatically updates the member count on team updates
+        serializer.save()
+        team = serializer.instance
+        team.member_count = team.memberships.filter(member_status=True).count()
+        team.save()
 
 # დასატესტია!!!!
 # Invitations
@@ -160,7 +170,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         # This allows users to see invitations they've sent and received
-        return Invitation.objects.filter(Q(sender__creator=user) | Q(receiver=user))
+        return Invitation.objects.filter(Q(sender=user) | Q(receiver=user))
 
     def create(self, request, *args, **kwargs):
         # Custom logic for creating an invitation, including validation

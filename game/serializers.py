@@ -36,7 +36,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
 # Teams / Membership / Invitations
 
 class TeamSerializer(serializers.ModelSerializer):
-    creator = CustomUserSerializer(many=False, read_only=True)
+    creator = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
 
     class Meta:
         model = Team
@@ -54,6 +54,11 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
 
 # Invitation
 class InvitationSerializer(serializers.ModelSerializer):
+    sender = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
+    team = serializers.PrimaryKeyRelatedField(queryset=Team.objects.all())
+    receiver = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
+
     class Meta:
         model = Invitation
-        fields = '__all__'
+        fields = ('sender', 'team', 'receiver', 'status')
+        
