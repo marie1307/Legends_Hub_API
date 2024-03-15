@@ -44,14 +44,25 @@ class Invitation(models.Model):
         ('Declined', 'Declined'),
     )
     
-    sender = models.ForeignKey(Team, related_name='sent_invitations', on_delete=models.CASCADE)
+    ROLE_CHOICES = (
+        ('Top lane', 'Top lane'),
+        ('Mid lane', 'Mid lane'),
+        ('Jungle', 'Jungle'),
+        ('Bot lane', 'Bot lane'),
+        ('Support', 'Support'),
+        ('Sub player 1', 'Sub player 1'),  # Added role
+        ('Sub player 2', 'Sub player 2'),  # Added role
+    )
+
+    sender = models.ForeignKey(CustomUser, related_name='sent_invitations', on_delete=models.CASCADE)
     team = models.ForeignKey(Team, related_name='invitations', on_delete=models.CASCADE)
     receiver = models.ForeignKey(CustomUser, related_name='received_invitations', on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('sender', 'receiver', 'team')
+        unique_together = ('sender', 'receiver', 'team', "role")
 
     def __str__(self):
         return f"Invitation from {self.sender.full_name} to {self.receiver.full_name} for team {self.team.name}"

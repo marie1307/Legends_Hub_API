@@ -36,7 +36,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
 # Teams / Membership / Invitations
 
 class TeamSerializer(serializers.ModelSerializer):
-    creator = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
+    creator = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all()) #????? json format or pk?
 
     class Meta:
         model = Team
@@ -60,5 +60,5 @@ class InvitationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Invitation
-        fields = ('sender', 'team', 'receiver', 'status')
+        fields = ('sender', 'team', 'receiver', 'role', 'status')
         
