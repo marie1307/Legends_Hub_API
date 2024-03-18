@@ -1,7 +1,8 @@
-from .models import CustomUser, Team, TeamMembership
 from rest_framework import serializers
+from .models import CustomUser, Team, TeamRole, Invitation, Notification, update_team_status
 from django.contrib.auth.hashers import make_password
-from .models import CustomUser, Team, TeamMembership, Invitation
+from django.db import transaction
+
 
 # Registration
 # User registration by email, first_name, last_name, in_game_name and password
@@ -33,32 +34,111 @@ class CustomUserSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'username', 'full_name')
 
 
-# Teams / Membership / Invitations
+# Team / Invitations
 
 class TeamSerializer(serializers.ModelSerializer):
-    creator = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all()) #????? json format or pk?
+    members = serializers.SerializerMethodField()
+    creator_role = serializers.ChoiceField(choices=TeamRole.MAIN_ROLE_CHOICES, write_only=True)
 
     class Meta:
         model = Team
-        fields = ('id', 'name', 'creator', 'member_count')
-        read_only_fields = ('member_count',)
+        fields = ['id', 'creator', 'name', 'logo', 'created_at', 'status', 'member_count', 'members', 'creator_role']
+        read_only_fields = ['id', 'created_at', 'status', 'creator', 'member_count', 'members']
 
-# Team_membership
-class TeamMembershipSerializer(serializers.ModelSerializer):
-    player = CustomUserSerializer(many=False, read_only=True)
-    team = TeamSerializer(many=True, read_only=True)
+    def get_members(self, obj):
+        roles = TeamRole.objects.filter(team=obj).select_related('member')
+        return [{'member_id': role.member.id, 'in_game_name': role.member.in_game_name, 'role': role.role} for role in roles]
+    
 
-    class Meta:
-        model = TeamMembership
-        fields = ('player', 'team', 'member_status')
-
-# Invitation
 class InvitationSerializer(serializers.ModelSerializer):
-    sender = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
-    team = serializers.PrimaryKeyRelatedField(queryset=Team.objects.all())
-    receiver = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
-
     class Meta:
         model = Invitation
-        fields = ('sender', 'team', 'receiver', 'role', 'status')
-        
+        fields = ['id', 'sender', 'receiver', 'team', 'role', 'status']
+        read_only_fields = ['id', 'sender', 'created_at']
+
+    
+    def validate(self, attrs):
+        super().validate(attrs)
+        request = self.context.get('request')
+
+        # Only perform certain validations when creating a new invitation
+        if request.method == 'POST':
+            receiver = attrs.get('receiver')
+            team = attrs.get('team')
+            role = attrs.get('role')
+
+            # Check if an invitation for the same role in the team is pending or accepted
+            existing_invitation = Invitation.objects.filter(
+                receiver=receiver,
+                team=team,
+                role=role,
+                # Assuming these are the statuses where another invite should be blocked
+                status__in=['Pending', 'Accepted']
+            ).exists()
+            
+            if existing_invitation:
+                raise serializers.ValidationError(f"An active invitation for the role '{
+                                                 role}' in this team already exists.")
+
+            if role in [choice[0] for choice in TeamRole.SUB_ROLE_CHOICES] and not team.status:
+                raise serializers.ValidationError(
+                    "Invitations for sub roles can only be sent after the team is created.")
+
+            sender = request.user
+            if not TeamRole.objects.filter(team=team, member=sender).exists() and team.creator != sender:
+                raise serializers.ValidationError(
+                    "You must be a member of the team to send invitations.")
+
+            if TeamRole.objects.filter(team=team, role=role).exists():
+                raise serializers.ValidationError(
+                    f"The role '{role}' already exists in the team.")
+
+        return attrs
+    
+
+    def create(self, validated_data):
+        validated_data['sender'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+    def update(self, instance, validated_data):
+        # Ensure status can only be changed once and by the intended receiver
+        user = self.context['request'].user
+        if instance.status != 'Pending' or instance.receiver != user:
+            raise serializers.ValidationError("You cannot change the invitation status.")
+
+        with transaction.atomic():
+            response = super().update(instance, validated_data)
+
+            # Create a notification for the sender when the receiver responds
+            Notification.objects.create(
+                user=instance.sender,
+                message=f"{user.full_name} has {'accepted' if instance.status == 'Accepted' else 'declined'} your invitation to join the team {instance.team.name}."
+            )
+
+            # If the invitation is accepted, add the user to the team roles
+            if instance.status == 'Accepted':
+                team_role, created = TeamRole.objects.get_or_create(
+                    team=instance.team,
+                    member=user,
+                    defaults={'role': instance.role}
+                )
+
+                # Update team status if necessary, similar logic as in the signal
+                update_team_status(sender=TeamRole, instance=team_role, created=created, team=instance.team)
+
+            return instance
+
+# Notifications
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'user', 'message', 'created_at']
+        read_only_fields = ['id', 'created_at']
+    
+    def __init__(self, *args, **kwargs):
+        super(NotificationSerializer, self).__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if not request or not request.user.is_staff:
+            self.fields['message'].read_only = True
