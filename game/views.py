@@ -1,4 +1,4 @@
-from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, InvitationSerializer, NotificationSerializer
+from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, InvitationSerializer, NotificationSerializer, TeamsListSerializer, UsersListSerializer
 from . models import CustomUser, Team, Invitation, Notification, TeamRole
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
@@ -10,7 +10,6 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from .permissions import PersinalPagePermission, IsTeamCreatorOrReadOnly
 from django.db.models import Q, F
-from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.core.exceptions import ValidationError as DRFValidationError, PermissionDenied
 
@@ -212,6 +211,19 @@ class InvitationViewSet(viewsets.ModelViewSet):
         if main_roles_count == len(TeamRole.MAIN_ROLE_CHOICES):
             team.status = True
             team.save()
+
+# Teams list
+class TeamsListViewSet(viewsets.ReadOnlyModelViewSet):
+ 
+    queryset = Team.objects.all()
+    serializer_class = TeamsListSerializer
+
+
+# Users list
+class UsersListViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = CustomUser.objects.all().prefetch_related('team_roles__team')
+    serializer_class = UsersListSerializer
+
 
 # Notifications
 class NotificationViewSet(viewsets.ModelViewSet):

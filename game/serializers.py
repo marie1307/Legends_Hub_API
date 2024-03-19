@@ -3,7 +3,6 @@ from .models import CustomUser, Team, TeamRole, Invitation, Notification, update
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 
-
 # Registration
 # User registration by email, first_name, last_name, in_game_name and password
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -60,8 +59,18 @@ class InvitationSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         super().validate(attrs)
         request = self.context.get('request')
+        user = request.user # The current user attempting to create the invitation
 
+        # The team to which the invitation is being sent
+        team = attrs.get('team')
+
+        # Check if the current user is the creator of the team
+        if request.method == 'POST' and team.creator != user:
+            raise serializers.ValidationError({
+                "detail": "Only the team creator can send invitations."
+            })
         # Only perform certain validations when creating a new invitation
+
         if request.method == 'POST':
             receiver = attrs.get('receiver')
             team = attrs.get('team')
@@ -69,7 +78,6 @@ class InvitationSerializer(serializers.ModelSerializer):
 
             # Check if an invitation for the same role in the team is pending or accepted
             existing_invitation = Invitation.objects.filter(
-                receiver=receiver,
                 team=team,
                 role=role,
                 # Assuming these are the statuses where another invite should be blocked
@@ -129,8 +137,54 @@ class InvitationSerializer(serializers.ModelSerializer):
 
             return instance
 
-# Notifications
 
+# Teams list
+class TeamsListSerializer(serializers.ModelSerializer):
+    members = serializers.SerializerMethodField()
+    creator_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Team
+        fields = ['id', 'creator', 'name', 'logo', 'created_at', 'status', 'member_count', 'members', 'creator_role']
+
+    def get_members(self, obj):
+        # Retrieve all TeamRole instances related to the team
+        team_roles = TeamRole.objects.filter(team=obj)
+        # Serialize each TeamRole into a simple dictionary
+        members_list = [{
+            'member_id': team_role.member.id,
+            'in_game_name': team_role.member.in_game_name,
+            'role': team_role.role
+        } for team_role in team_roles]
+        return members_list
+
+    def get_creator_role(self, obj):
+        # Example logic to determine the creator's role
+        creator_role = TeamRole.objects.filter(team=obj, member=obj.creator).first()
+        return creator_role.role if creator_role else None
+
+
+# Users list
+class UsersListSerializer(serializers.ModelSerializer):
+    teams_roles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = ["id", "username", "full_name", "in_game_name", "teams_roles"]
+
+    def get_teams_roles(self, obj):
+        # Fetch all TeamRole instances related to the user
+        team_roles = TeamRole.objects.filter(member=obj)
+        # Serialize the TeamRole information into a list of dictionaries
+        return [{
+            'team_id': team_role.team.id,
+            'team_name': team_role.team.name,
+            'role': team_role.role
+        } for team_role in team_roles]
+
+
+
+# Notifications
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification

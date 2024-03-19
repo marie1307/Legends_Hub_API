@@ -57,9 +57,10 @@ class TeamRole(models.Model):
 
 @receiver(pre_save, sender=TeamRole)
 def limit_team_members(sender, instance, **kwargs):
-    if TeamRole.objects.filter(member=instance.member).exists():
-        raise ValidationError("A member can only be in one team at a time.")
-
+    # Check if a TeamRole with the same team, member, and role already exists.
+    if TeamRole.objects.filter(team=instance.team, member=instance.member, role=instance.role).exists():
+        raise ValidationError(
+            "A member can only have one unique role in the same team.")
 
 @receiver(post_save, sender=TeamRole)
 def update_team_status(sender, instance, **kwargs):
