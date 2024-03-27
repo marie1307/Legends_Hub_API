@@ -1,5 +1,6 @@
+from datetime import timezone
 from rest_framework import serializers
-from .models import CustomUser, Team, TeamRole, Invitation, Notification, update_team_status
+from .models import CustomUser, Team, TeamRole, Invitation, Notification, update_team_status, Tournament, Game, GameSchedule
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 
@@ -196,3 +197,46 @@ class NotificationSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if not request or not request.user.is_staff:
             self.fields['message'].read_only = True
+
+
+
+# Tournaments
+class TournamentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tournament
+        fields = "__all__"
+        read_only_fields = ['teams']
+
+    def create(self, validated_data):
+        # Logic to check start_time and end_time constraints
+        if not (Tournament.start_time <= timezone.now() <= Tournament.end_time):
+            raise serializers.ValidationError("Registration is not open.")
+        return super().create(validated_data)
+    
+
+# Games 
+class GameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Game
+        fields = "__all__"
+        read_only_fields = ['tournament', 'team', 'score', 'win', 'lost', 'total_game', 'registered_time']
+
+
+
+# Game schedule
+class GameScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GameSchedule
+        fields = "__all__"
+        read_only_fields = ['tournament', 'time', 'team_1', 'team_2', 'score_team_1', 'score_team_2', 'vote']
+
+    def update(self, instance, validated_data):
+        user = self.context['request'].user
+        # Logic for image upload and score update
+        if 'image_team_1' in validated_data:
+            if instance.team_1.creator != user:
+                raise serializers.ValidationError("Only the team creator can upload an image for team 1.")
+            instance.score_team_1 += 1
+            instance.team_1.score += 1  # Assuming 'score' is a field on Team model
+        # Similar logic for team_2
+        return super().update(instance, validated_data)

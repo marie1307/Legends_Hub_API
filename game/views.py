@@ -1,5 +1,5 @@
-from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, InvitationSerializer, NotificationSerializer, TeamsListSerializer, UsersListSerializer
-from . models import CustomUser, Team, Invitation, Notification, TeamRole
+from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, InvitationSerializer, NotificationSerializer, TeamsListSerializer, UsersListSerializer, TournamentSerializer, GameSerializer, GameScheduleSerializer
+from . models import CustomUser, Team, Invitation, Notification, TeamRole, Tournament, Game, GameSchedule
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import update_last_login
 from .permissions import PersinalPagePermission, IsTeamCreatorOrReadOnly
 from django.db.models import Q, F
 from django.db import transaction
@@ -45,12 +46,29 @@ class LoginAPIView(APIView):
             username = serializer.validated_data['username']
             password = serializer.validated_data['password']
 
+            # Checks if a user with the provided username exists
+            user_exists = CustomUser.objects.filter(username=username).exists()
+            if not user_exists:
+                # If the user doesn't exist, returns error message
+                return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # authenticates the user
             user = authenticate(request,  username=username, password=password)
             if user is not None:
                 token, created = Token.objects.get_or_create(user=user)
-                return Response({'token': token.key})
+                update_last_login(None, user)
+                user_serializer = CustomUserSerializer(user)
+                # returns user information including token, username, in_game_name and Full_name
+                response_data = {
+                    'token': token.key,
+                    'username': user_serializer.data['username'],
+                    'in_game_name': user_serializer.data['in_game_name'],
+                    'full_name': user_serializer.data['full_name'], 
+                }
+                return Response(response_data)
             else:
-                return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+                # If authentication fails but the user exists because password is incorrect
+                return Response({'error': 'Invalid password'}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -181,9 +199,14 @@ class InvitationViewSet(viewsets.ModelViewSet):
             if instance.status != 'Pending':
                 raise DRFValidationError(
                     "You can't change the invitation status after a decision has been made.")
+            
             if new_status not in ['Accepted', 'Declined']:
                 raise DRFValidationError("Invalid status update.")
-
+            
+            if TeamRole.objects.filter(member=user).exists():
+                raise DRFValidationError(
+                    "The invited user is already part of another team.")
+            
             serializer.save()
 
             if new_status == 'Accepted':
@@ -242,5 +265,53 @@ class NotificationViewSet(viewsets.ModelViewSet):
         if not user.is_staff:
             return Response({"error": "Only admin users can send notifications."}, status=status.HTTP_403_FORBIDDEN)
         
-        return super().create(request, *args, **kwargs)
+        # Extract notification data from request
+        data = request.data
 
+        # Fetch all users except the admin sending the notification
+        users = CustomUser.objects.exclude(id=user.id)
+
+        notifications = []
+        for user in users:
+            # Update the 'user' field in the notification data for each user
+            data['user'] = user.id
+            serializer = self.get_serializer(data=data)
+            if serializer.is_valid():
+                serializer.save()
+                notifications.append(serializer.data)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(notifications, status=status.HTTP_201_CREATED)
+
+
+
+# Tournamen
+class TournamentViewSet(viewsets.ModelViewSet):
+    queryset = Tournament.objects.all()
+    serializer_class = TournamentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Logic to filter tournaments based on time constraints, etc.
+        return super().get_queryset()
+
+    # Additional methods to enforce POST request constraints, etc.
+
+
+
+# Game hostory
+class GameViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Game.objects.all()
+    serializer_class = GameSerializer
+
+# Game schedule
+class GameScheduleViewSet(viewsets.ModelViewSet):
+    queryset = GameSchedule.objects.all()
+    serializer_class = GameScheduleSerializer
+
+    def get_permissions(self):
+        # Custom permission logic for PATCH requests
+        return super().get_permissions()
+
+    # Additional methods for image upload and voting
