@@ -112,11 +112,9 @@ class Notification(models.Model):
 # Tournamens
 class Tournament(models.Model):
     title = models.CharField(max_length=255)
-    teams = models.ManyToManyField(Team, related_name='tournaments')
     created_time = models.DateTimeField(auto_now_add=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
-    limit = models.IntegerField(blank=True, null=True)
 
     def __str__(self):
         return self.title
