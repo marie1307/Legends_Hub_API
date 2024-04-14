@@ -120,6 +120,13 @@ class Tournament(models.Model):
 
     def __str__(self):
         return self.title
+    
+# Registraion on tournament    
+class TournamentRegistration(models.Model):
+    tournament = models.ForeignKey('Tournament', related_name='registrations', on_delete=models.CASCADE)
+    team = models.ForeignKey('Team', related_name='tournament_registrations', on_delete=models.CASCADE)
+    created_time = models.DateTimeField(auto_now_add=True)
+
 
 # Games history
 class Game(models.Model):

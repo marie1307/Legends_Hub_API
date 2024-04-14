@@ -1,5 +1,5 @@
-from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, InvitationSerializer, NotificationSerializer, TeamsListSerializer, UsersListSerializer, TournamentSerializer, GameSerializer, GameScheduleSerializer
-from . models import CustomUser, Team, Invitation, Notification, TeamRole, Tournament, Game, GameSchedule
+from .serializers import UserRegistrationSerializer, LoginSerializer, CustomUserSerializer, TeamSerializer, InvitationSerializer, NotificationSerializer, TeamsListSerializer, UsersListSerializer, TournamentSerializer, TournamentRegistrationSerializer, GameSerializer, GameScheduleSerializer
+from . models import CustomUser, Team, Invitation, Notification, TeamRole, Tournament, TournamentRegistration, Game, GameSchedule
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
@@ -13,6 +13,8 @@ from .permissions import PersinalPagePermission, IsTeamCreatorOrReadOnly
 from django.db.models import Q, F
 from django.db import transaction
 from django.core.exceptions import ValidationError as DRFValidationError, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed
+from django.utils import timezone
 
 
 # Registration
@@ -61,9 +63,9 @@ class LoginAPIView(APIView):
                 # returns user information including token, username, in_game_name and Full_name
                 response_data = {
                     'token': token.key,
-                    'username': user_serializer.data['username'],
-                    'in_game_name': user_serializer.data['in_game_name'],
-                    'full_name': user_serializer.data['full_name'], 
+                    # 'username': user_serializer.data['username'],
+                    # 'in_game_name': user_serializer.data['in_game_name'],
+                    # 'full_name': user_serializer.data['full_name'], 
                 }
                 return Response(response_data)
             else:
@@ -286,19 +288,56 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
 
 
-# Tournamen
+# Tournament
 class TournamentViewSet(viewsets.ModelViewSet):
     queryset = Tournament.objects.all()
     serializer_class = TournamentSerializer
+
+
+class TournamentRegistrationViewSet(viewsets.ModelViewSet):
+    queryset = TournamentRegistration.objects.all()
+    serializer_class = TournamentRegistrationSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        # Logic to filter tournaments based on time constraints, etc.
-        return super().get_queryset()
 
-    # Additional methods to enforce POST request constraints, etc.
+    def retrieve(self, request, *args, **kwargs):
+        raise MethodNotAllowed("GET")
 
+    def update(self, request, *args, **kwargs):
+        raise MethodNotAllowed("PUT")
 
+    def partial_update(self, request, *args, **kwargs):
+        raise MethodNotAllowed("PATCH")
+
+    def destroy(self, request, *args, **kwargs):
+        raise MethodNotAllowed("DELETE")
+    
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        tournament = serializer.validated_data['tournament']
+
+        if not tournament.start_time <= timezone.now() <= tournament.end_time:
+            raise PermissionDenied(
+                "Registration is not open for this tournament.")
+
+        team = Team.objects.filter(creator=request.user).first()
+        if not team:
+            raise PermissionDenied("You haven't created any team yet.")
+
+        if not team.status:
+            raise PermissionDenied("The team is not complete.")
+
+        existing_registration = TournamentRegistration.objects.filter(
+            team=team, tournament=tournament).exists()
+        if existing_registration:
+            raise PermissionDenied("The team is already registered for this tournament.")
+
+        serializer.save(team=team)
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
 
 # Game hostory
 class GameViewSet(viewsets.ReadOnlyModelViewSet):

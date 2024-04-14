@@ -1,8 +1,9 @@
-from datetime import timezone
+from django.utils import timezone
 from rest_framework import serializers
-from .models import CustomUser, Team, TeamRole, Invitation, Notification, update_team_status, Tournament, Game, GameSchedule
+from .models import CustomUser, Team, TeamRole, Invitation, Notification, update_team_status, Tournament, TournamentRegistration, Game, GameSchedule
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
+from rest_framework.exceptions import PermissionDenied
 
 # Registration
 # User registration by email, first_name, last_name, in_game_name and password
@@ -199,7 +200,6 @@ class NotificationSerializer(serializers.ModelSerializer):
             self.fields['message'].read_only = True
 
 
-
 # Tournaments
 class TournamentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -207,12 +207,36 @@ class TournamentSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ['teams']
 
+    def validate(self, data):
+        if self.context['request'].user.is_admin:
+            return data
+        raise PermissionDenied("Only admin users can create tournaments.")
+
     def create(self, validated_data):
-        # Logic to check start_time and end_time constraints
-        if not (Tournament.start_time <= timezone.now() <= Tournament.end_time):
+        if self.context['request'].user.is_admin:
+            return super().create(validated_data)
+        raise PermissionDenied("Only admin users can create tournaments.")
+
+
+# Tournament registration
+class TournamentRegistrationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TournamentRegistration
+        fields = "__all__"
+
+    def validate(self, data):
+        team = data['team']
+        tournament = data['tournament']
+        if not team.creator == self.context['request'].user:
+            raise PermissionDenied("Only team creators can register the team.")
+        if not team.status:
+            raise serializers.ValidationError("Team is not complete.")
+        if not tournament.start_time <= timezone.now() <= tournament.end_time:
             raise serializers.ValidationError("Registration is not open.")
-        return super().create(validated_data)
-    
+        if TournamentRegistration.objects.filter(team=team, tournament=tournament).exists():
+            raise serializers.ValidationError("Team is already registered for this tournament.")
+        return data
+
 
 # Games 
 class GameSerializer(serializers.ModelSerializer):
@@ -220,7 +244,6 @@ class GameSerializer(serializers.ModelSerializer):
         model = Game
         fields = "__all__"
         read_only_fields = ['tournament', 'team', 'score', 'win', 'lost', 'total_game', 'registered_time']
-
 
 
 # Game schedule
