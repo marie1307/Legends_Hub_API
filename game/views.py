@@ -218,14 +218,12 @@ class InvitationViewSet(viewsets.ModelViewSet):
                     self._update_team_status(instance.team)
                     Notification.objects.create(
                         user=instance.sender,
-                        message=f"{user.get_full_name()} has accepted your invitation to join the team '{
-                            instance.team.name}' as '{instance.role}'."
+                        message=f"{user.get_full_name()} has accepted your invitation to join the team '{instance.team.name}' as '{instance.role}'."
                     )
             elif new_status == 'Declined':
                 Notification.objects.create(
                     user=instance.sender,
-                    message=f"{user.get_full_name()} has declined your invitation to join the team '{
-                        instance.team.name}' as '{instance.role}'."
+                    message=f"{user.get_full_name()} has declined your invitation to join the team '{instance.team.name}' as '{instance.role}'."
                 )
 
     def _update_team_status(self, team):

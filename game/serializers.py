@@ -87,9 +87,8 @@ class InvitationSerializer(serializers.ModelSerializer):
             ).exists()
             
             if existing_invitation:
-                raise serializers.ValidationError(f"An active invitation for the role '{
-                                                 role}' in this team already exists.")
-
+                raise serializers.ValidationError(f"An active invitation for the role '{role}' in this team already exists.")
+            
             if role in [choice[0] for choice in TeamRole.SUB_ROLE_CHOICES] and not team.status:
                 raise serializers.ValidationError(
                     "Invitations for sub roles can only be sent after the team is created.")
