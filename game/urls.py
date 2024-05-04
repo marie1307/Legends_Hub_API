@@ -1,7 +1,7 @@
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CustomUserPersonalPageViewSet, TeamViewSet, InvitationViewSet, NotificationViewSet, TeamsListViewSet, UsersListViewSet, TournamentViewSet, TournamentRegistrationViewSet
+from .views import CustomUserPersonalPageViewSet, TeamViewSet, InvitationViewSet, NotificationViewSet, TeamsListViewSet, UsersListViewSet, TournamentViewSet, TournamentRegistrationViewSet, GameScheduleViewSet
 
 router = DefaultRouter()
 router.register(r'personal_page', CustomUserPersonalPageViewSet)
@@ -12,6 +12,7 @@ router.register(r'teams_list', TeamsListViewSet, basename="teams_list")
 router.register(r'users_list', UsersListViewSet, basename="users_list")
 router.register(r'tournaments', TournamentViewSet)
 router.register(r'tournament-registrations', TournamentRegistrationViewSet)
+router.register(r'game_schedule', GameScheduleViewSet, basename="game_schedule")
 
 
 urlpatterns = [

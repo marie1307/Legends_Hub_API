@@ -17,8 +17,7 @@ class CustomUser(AbstractUser):
     
 # Team
 class Team(models.Model):
-    creator = models.ForeignKey(
-        CustomUser, related_name='created_teams', on_delete=models.CASCADE)
+    creator = models.ForeignKey(CustomUser, related_name='created_teams', on_delete=models.CASCADE)
     name = models.CharField(max_length=100, unique=True)
     logo = models.ImageField(upload_to='team_logos/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -41,12 +40,9 @@ class TeamRole(models.Model):
         ('Sub player 1', 'Sub player 1'),
         ('Sub player 2', 'Sub player 2'),
     )
-    team = models.ForeignKey(Team, related_name='roles',
-                             on_delete=models.CASCADE)
-    member = models.ForeignKey(
-        CustomUser, related_name='team_roles', on_delete=models.CASCADE)
-    role = models.CharField(
-        max_length=20, choices=MAIN_ROLE_CHOICES + SUB_ROLE_CHOICES)
+    team = models.ForeignKey(Team, related_name='roles', on_delete=models.CASCADE)
+    member = models.ForeignKey(CustomUser, related_name='team_roles', on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=MAIN_ROLE_CHOICES + SUB_ROLE_CHOICES)
 
     class Meta:
         unique_together = ('team', 'member', 'role')

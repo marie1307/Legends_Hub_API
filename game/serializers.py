@@ -257,8 +257,20 @@ class GameScheduleSerializer(serializers.ModelSerializer):
         # Logic for image upload and score update
         if 'image_team_1' in validated_data:
             if instance.team_1.creator != user:
-                raise serializers.ValidationError("Only the team creator can upload an image for team 1.")
+                raise serializers.ValidationError("Only the team creator can upload an image.")
             instance.score_team_1 += 1
             instance.team_1.score += 1  # Assuming 'score' is a field on Team model
-        # Similar logic for team_2
+        if 'image_team_2' in validated_data:
+            if instance.team_2.creator != user:
+                raise serializers.ValidationError("Only the team creator can upload an image.")
+            instance.score_team_2 += 1
+            instance.team_2.score += 1  # Assuming 'score' is a field on Team model
+
+        # Logic for updating vote
+        if 'vote' in validated_data:
+            if instance.vote_updated_by:
+                raise serializers.ValidationError("Vote can only be updated once.")
+            instance.vote_updated_by = user
+            instance.vote += 1
+
         return super().update(instance, validated_data)
