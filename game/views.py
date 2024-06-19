@@ -9,11 +9,11 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
-from .permissions import PersinalPagePermission, IsTeamCreatorOrReadOnly
+from .permissions import PersinalPagePermission, IsTeamCreatorOrReadOnly, IsTeamCreatorOrReadOnlyForSchedule
 from django.db.models import Q, F
 from django.db import transaction
 from django.core.exceptions import ValidationError as DRFValidationError, PermissionDenied
-from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from django.utils import timezone
 
 
@@ -317,8 +317,7 @@ class TournamentRegistrationViewSet(viewsets.ModelViewSet):
         tournament = serializer.validated_data['tournament']
 
         if not tournament.start_time <= timezone.now() <= tournament.end_time:
-            raise PermissionDenied(
-                "Registration is not open for this tournament.")
+            raise PermissionDenied("Registration is not open for this tournament.")
 
         team = Team.objects.filter(creator=request.user).first()
         if not team:
@@ -335,12 +334,7 @@ class TournamentRegistrationViewSet(viewsets.ModelViewSet):
         serializer.save(team=team)
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-    
 
-# Game hostory
-class GameViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Game.objects.all()
-    serializer_class = GameSerializer
 
 # Game schedule
 class GameScheduleViewSet(viewsets.ModelViewSet):
@@ -348,7 +342,37 @@ class GameScheduleViewSet(viewsets.ModelViewSet):
     serializer_class = GameScheduleSerializer
 
     def get_permissions(self):
-        # Custom permission logic for PATCH requests
-        return super().get_permissions()
+        if self.action in ['partial_update', 'update']:
+            permission_classes = [IsAuthenticated]
+        elif self.action == 'create':
+            permission_classes = [IsAuthenticated,
+                                  IsTeamCreatorOrReadOnlyForSchedule]
+        else:
+            permission_classes = [IsTeamCreatorOrReadOnlyForSchedule]
+        return [permission() for permission in permission_classes]
 
-    # Additional methods for image upload and voting
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        updated_instance = serializer.update_vote(
+            instance, serializer.validated_data)
+        return Response(GameScheduleSerializer(updated_instance).data)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(
+            data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        return Response(GameScheduleSerializer(instance).data)
+
+    def update(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+    
+
+
+# Game History
+class GameViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Game.objects.all()
+    serializer_class = GameSerializer

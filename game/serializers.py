@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .models import CustomUser, Team, TeamRole, Invitation, Notification, update_team_status, Tournament, TournamentRegistration, Game, GameSchedule
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 # Registration
 # User registration by email, first_name, last_name, in_game_name and password
@@ -237,40 +237,75 @@ class TournamentRegistrationSerializer(serializers.ModelSerializer):
         return data
 
 
-# Games 
+# Game Schedule
+class GameScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GameSchedule
+        fields = "__all__"
+        read_only_fields = ['tournament', 'time', 'team_1', 'team_2', 'score_team_1', 'score_team_2', 'vote_updated_by']
+
+    def update_vote(self, instance, validated_data):
+        user = self.context['request'].user
+        if 'vote' in validated_data:
+            if user in instance.vote_updated_by.all():
+                raise serializers.ValidationError("You have already voted for this game.")
+            instance.vote_updated_by.add(user)
+            instance.vote = validated_data['vote']  # Update the vote field directly
+            instance.save()
+        return instance
+
+    def update_image(self, instance, validated_data):
+        user = self.context['request'].user
+        current_time = timezone.now()
+        game_time = instance.time
+        time_difference = current_time - game_time
+
+        if time_difference.total_seconds() > 172800:  # 48 hours = 172800 seconds
+            raise serializers.ValidationError("Score and image can only be updated within 48 hours after the game began.")
+
+        if 'image_team_1' in validated_data:
+            if instance.team_1.creator != user:
+                raise serializers.ValidationError("Only the team creator can upload an image.")
+            instance.score_team_1 += 1
+            game_1 = GameSchedule.objects.get(team_1=instance.team_1, tournament=instance.tournament)
+            game_1.score_team_1 += 1
+            game_1.save()
+
+        if 'image_team_2' in validated_data:
+            if instance.team_2.creator != user:
+                raise serializers.ValidationError("Only the team creator can upload an image.")
+            instance.score_team_2 += 1
+            game_2 = GameSchedule.objects.get(team_2=instance.team_2, tournament=instance.tournament)
+            game_2.score_team_2 += 1
+            game_2.save()
+
+        return super().update(instance, validated_data)
+
+
+# Game History
 class GameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Game
         fields = "__all__"
         read_only_fields = ['tournament', 'team', 'score', 'win', 'lost', 'total_game', 'registered_time']
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        current_time = timezone.now()
+        game_schedules = GameSchedule.objects.filter(
+            tournament=instance.tournament, team_1=instance.team).order_by('time')
+        for schedule in game_schedules:
 
-# Game schedule
-class GameScheduleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = GameSchedule
-        fields = "__all__"
-        read_only_fields = ['tournament', 'time', 'team_1', 'team_2', 'score_team_1', 'score_team_2', 'vote']
-
-    def update(self, instance, validated_data):
-        user = self.context['request'].user
-        # Logic for image upload and score update
-        if 'image_team_1' in validated_data:
-            if instance.team_1.creator != user:
-                raise serializers.ValidationError("Only the team creator can upload an image.")
-            instance.score_team_1 += 1
-            instance.team_1.score += 1  # Assuming 'score' is a field on Team model
-        if 'image_team_2' in validated_data:
-            if instance.team_2.creator != user:
-                raise serializers.ValidationError("Only the team creator can upload an image.")
-            instance.score_team_2 += 1
-            instance.team_2.score += 1  # Assuming 'score' is a field on Team model
-
-        # Logic for updating vote
-        if 'vote' in validated_data:
-            if instance.vote_updated_by:
-                raise serializers.ValidationError("Vote can only be updated once.")
-            instance.vote_updated_by = user
-            instance.vote += 1
-
-        return super().update(instance, validated_data)
+            game_time = schedule.time
+            time_difference = current_time - game_time
+            if time_difference.total_seconds() > 172800 and not schedule.winner_updated:
+                if schedule.score_team_1 > schedule.score_team_2:
+                    instance.win += 1
+                elif schedule.score_team_1 < schedule.score_team_2:
+                    game_2 = Game.objects.get(team=schedule.team_2, tournament=schedule.tournament)
+                    game_2.win += 1
+                    game_2.save()
+                schedule.winner_updated = True
+                schedule.save()
+        instance.save()
+        return representation
